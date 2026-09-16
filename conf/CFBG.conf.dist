@@ -132,6 +132,17 @@
 #                    reservations that never showed up don't skew the repair.
 #       Default: 1 - (Enabled)
 #                0 - (Disabled)
+#
+#   CFBG.UncontestedTimeout.NoReward.Enabled
+#       Description: A battleground whose opposing team never had a single player
+#                    inside (e.g. the only invitee on that side declined) is ended
+#                    with no rewards when the premature-finish timer
+#                    (Battleground.PrematureFinishTimer) runs out, instead of the
+#                    core awarding a win plus end-of-match honor / arena points /
+#                    achievements to the lone side. A side whose players entered
+#                    and later left still yields the normal premature win.
+#       Default: 1 - (Enabled)
+#                0 - (Disabled)
 
 CFBG.Enable = 1
 CFBG.Battlefield.Enable = 1
@@ -153,3 +164,4 @@ CFBG.Show.PlayerName = 0
 CFBG.RandomRaceSelection = 1
 CFBG.BalanceTeamsOnEntry.Enabled = 1
 CFBG.BalanceTeamsAtStart.Enabled = 1
+CFBG.UncontestedTimeout.NoReward.Enabled = 1

@@ -22,6 +22,8 @@ public:
         ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_BEFORE_ADD_PLAYER,
         ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_ADD_PLAYER,
         ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_START,
+        ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_UPDATE,
+        ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_DESTROY,
         ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_REMOVE_PLAYER_AT_LEAVE,
         ALLBATTLEGROUNDHOOK_ON_ADD_GROUP,
         ALLBATTLEGROUNDHOOK_CAN_FILL_PLAYERS_TO_BG,
@@ -37,6 +39,16 @@ public:
     void OnBattlegroundStart(Battleground* bg) override
     {
         sCFBG->BalanceTeamsAtStart(bg);
+    }
+
+    void OnBattlegroundUpdate(Battleground* bg, uint32 diff) override
+    {
+        sCFBG->UpdateUncontestedTimeout(bg, diff);
+    }
+
+    void OnBattlegroundDestroy(Battleground* bg) override
+    {
+        sCFBG->ClearUncontestedTimeout(bg);
     }
 
     void OnBattlegroundAddPlayer(Battleground* bg, Player* player) override

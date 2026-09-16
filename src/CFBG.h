@@ -109,6 +109,15 @@ struct TeamBalanceContext
     TeamId fallback{ TEAM_NEUTRAL }; // provisional / candidate team
 };
 
+// Per-instance mirror of core's premature-finish countdown, used to end an
+// uncontested battleground without rewards before core awards the lone side.
+struct UncontestedTimeoutState
+{
+    std::array<bool, 2> TeamSeen{ false, false }; // a player of that team was ever inside
+    bool CountingDown{ false };
+    uint32 Elapsed{ 0 };
+};
+
 class CFBG
 {
 public:
@@ -132,6 +141,7 @@ public:
     inline bool IsEnableResetCooldowns() const { return _IsEnableResetCooldowns; }
     inline bool IsEnableBalanceTeamsOnEntry() const { return _IsEnableBalanceTeamsOnEntry; }
     inline bool IsEnableBalanceTeamsAtStart() const { return _IsEnableBalanceTeamsAtStart; }
+    inline bool IsEnableUncontestedTimeoutNoReward() const { return _IsEnableUncontestedTimeoutNoReward; }
     inline uint32 EvenTeamsMaxPlayersThreshold() const { return _EvenTeamsMaxPlayersThreshold; }
     inline uint32 GetMaxPlayersCountInGroup() const { return _MaxPlayersCountInGroup; }
     inline uint8 GetBalanceClassMinLevel() const { return _balanceClassMinLevel; }
@@ -172,6 +182,13 @@ public:
     // to the smaller side so the match starts within 1 of even. Real BG premades
     // are never split. Fired from OnBattlegroundStart.
     void BalanceTeamsAtStart(Battleground* bg);
+
+    // Premature-finish exploit guard: a match whose other side never had anyone
+    // inside (declined invite) would otherwise be won by timeout with full end
+    // rewards and no deserter. Ends it rewardless one tick ahead of core instead.
+    // Fired from OnBattlegroundUpdate; state dropped in OnBattlegroundDestroy.
+    void UpdateUncontestedTimeout(Battleground* bg, uint32 diff);
+    void ClearUncontestedTimeout(Battleground* bg);
     void SetFakeRaceAndMorph(Player* player);
     void SetFakeRaceAndMorphForBF(Player* player, TeamId assignedTeam);
     void SetFactionForRace(Player* player, uint8 Race, TeamId teamId);
@@ -238,6 +255,9 @@ private:
     uint32 _wgMajorityNativeKept = 0;
     std::unordered_map<Player*, bool> _forgetBGPlayersStore;
 
+    // Keyed by BG instance id; only touched from the world-thread BG update/destroy.
+    std::unordered_map<uint32, UncontestedTimeoutState> _uncontestedTimeoutStore;
+
     std::array<RaceData, 12> _raceData{};
     std::array<CFBGRaceInfo, 9> _raceInfo{};
 
@@ -257,6 +277,7 @@ private:
     bool _IsEnableResetCooldowns;
     bool _IsEnableBalanceTeamsOnEntry;
     bool _IsEnableBalanceTeamsAtStart;
+    bool _IsEnableUncontestedTimeoutNoReward;
     bool _showPlayerName;
     bool _randomizeRaces;
     uint32 _EvenTeamsMaxPlayersThreshold;

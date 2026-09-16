@@ -114,6 +114,7 @@ void CFBG::LoadConfig()
             // deleted; drop it without dereferencing the key.
             _fakePlayerStore.clear();
             _forgetBGPlayersStore.clear();
+            _uncontestedTimeoutStore.clear();
         }
 
         return;
@@ -139,6 +140,7 @@ void CFBG::LoadConfig()
     _IsEnableResetCooldowns = sConfigMgr->GetOption<bool>("CFBG.ResetCooldowns", false);
     _IsEnableBalanceTeamsOnEntry = sConfigMgr->GetOption<bool>("CFBG.BalanceTeamsOnEntry.Enabled", true);
     _IsEnableBalanceTeamsAtStart = sConfigMgr->GetOption<bool>("CFBG.BalanceTeamsAtStart.Enabled", true);
+    _IsEnableUncontestedTimeoutNoReward = sConfigMgr->GetOption<bool>("CFBG.UncontestedTimeout.NoReward.Enabled", true);
     _showPlayerName = sConfigMgr->GetOption<bool>("CFBG.Show.PlayerName", false);
     _EvenTeamsMaxPlayersThreshold = sConfigMgr->GetOption<uint32>("CFBG.EvenTeams.MaxPlayersThreshold", 0);
     _MaxPlayersCountInGroup = sConfigMgr->GetOption<uint32>("CFBG.Players.Count.In.Group", 3);
@@ -595,6 +597,91 @@ void CFBG::BalanceTeamsAtStart(Battleground* bg)
             toFlip->GetName(), static_cast<uint32>(smaller), bg->GetInstanceID(),
             bg->GetPlayersCountByTeam(TEAM_ALLIANCE), bg->GetPlayersCountByTeam(TEAM_HORDE));
     }
+}
+
+void CFBG::UpdateUncontestedTimeout(Battleground* bg, uint32 diff)
+{
+    if (!IsEnableSystem() || !IsEnableUncontestedTimeoutNoReward())
+        return;
+
+    if (!bg || bg->isArena() || bg->isRated())
+        return;
+
+    BattlegroundStatus const status = bg->GetStatus();
+    if (status != STATUS_WAIT_JOIN && status != STATUS_IN_PROGRESS)
+        return;
+
+    UncontestedTimeoutState& state = _uncontestedTimeoutStore[bg->GetInstanceID()];
+
+    uint32 const countA = bg->GetPlayersCountByTeam(TEAM_ALLIANCE);
+    uint32 const countH = bg->GetPlayersCountByTeam(TEAM_HORDE);
+
+    if (countA)
+        state.TeamSeen[TEAM_ALLIANCE] = true;
+    if (countH)
+        state.TeamSeen[TEAM_HORDE] = true;
+
+    if (status != STATUS_IN_PROGRESS)
+        return;
+
+    // Mirror Battleground::Update's premature-finish condition. This hook runs
+    // after core's check on the same tick with the same counts, so the mirror
+    // never starts later nor resets out of step with core's countdown.
+    uint32 const prematureTime = sBattlegroundMgr->GetPrematureFinishTime();
+    uint32 const minPlayers = bg->GetMinPlayersPerTeam();
+
+    if (!prematureTime || (countA >= minPlayers && countH >= minPlayers))
+    {
+        state.CountingDown = false;
+        return;
+    }
+
+    if (!state.CountingDown)
+    {
+        state.CountingDown = true;
+        state.Elapsed = 0;
+    }
+    else
+        state.Elapsed += diff;
+
+    // Core's countdown never expires under .debug bg; leave test matches alone.
+    if (sBattlegroundMgr->isTesting())
+        return;
+
+    // Core ends the match on the tick after its timer drops below one update
+    // interval; act while at least one full tick remains before that.
+    if (state.Elapsed + BATTLEGROUND_UPDATE_INTERVAL < prematureTime)
+        return;
+
+    // Only the exploit shape: a side that is empty now and never had anyone
+    // inside. Opponents who entered and then left took deserter, so the
+    // remaining side keeps core's normal premature win.
+    bool const uncontestedA = !countA && !state.TeamSeen[TEAM_ALLIANCE];
+    bool const uncontestedH = !countH && !state.TeamSeen[TEAM_HORDE];
+    if (!uncontestedA && !uncontestedH)
+        return;
+
+    LOG_DEBUG("module", "mod-cfbg: instance {} ended without rewards, uncontested timeout ({}v{})",
+        bg->GetInstanceID(), countA, countH);
+
+    for (auto const& [guid, player] : bg->GetPlayers())
+        if (player)
+            ChatHandler(player->GetSession()).SendSysMessage("The battleground has ended without rewards: no opposing players ever joined.");
+
+    // Rewardless end, same as core's EndNow(): WAIT_LEAVE with a zero end timer
+    // skips EndBattleground's honor/arena/achievement loop, and the next update
+    // removes everyone at WAIT_LEAVE status, which casts no deserter.
+    bg->RemoveFromBGFreeSlotQueue();
+    bg->SetStatus(STATUS_WAIT_LEAVE);
+    bg->SetEndTime(0);
+
+    _uncontestedTimeoutStore.erase(bg->GetInstanceID());
+}
+
+void CFBG::ClearUncontestedTimeout(Battleground* bg)
+{
+    if (bg)
+        _uncontestedTimeoutStore.erase(bg->GetInstanceID());
 }
 
 uint32 CFBG::GetMorphFromRace(uint8 race, uint8 gender)
